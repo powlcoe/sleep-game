@@ -1,0 +1,954 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sleep Deprivation Game</title>
+<meta name="description" content="An online multiplayer version of the BrainFacts.org Sleep Deprivation board game. Host a room and share the link; up to 30 players.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bagel+Fat+One&family=Nunito:wght@400;600;700;800&family=DM+Mono:wght@400;500&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<style>
+/* Layout: a bedroom at night. Snake-path board on the left, a nightstand panel on the right; stacks on phones. Single dark theme by design. */
+:root {
+  --night: #131a33; --night-2: #1b2446; --night-3: #26315c; --line: #3a4679;
+  --moon: #f4e7bf; --ink: #e9e7f5; --muted: #a3a6c7; --lav: #a9a3ec;
+  --gain: #86d6a6; --lose: #f2847a; --roll: #f4c96b; --skip: #8fb8f0; --swap: #d59ae6; --boost: #f6b49c;
+  --f-display: "Bagel Fat One", "Arial Rounded MT Bold", system-ui, sans-serif;
+  --f-body: "Nunito", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "DM Mono", ui-monospace, Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { background: var(--night); }
+body {
+  margin: 0; color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: max(20px, env(safe-area-inset-top, 0px)) max(48px, env(safe-area-inset-bottom, 0px));
+  background: radial-gradient(1200px 500px at 85% -10%, #2a3470 0%, transparent 60%), var(--night);
+  min-height: 100vh;
+}
+[hidden] { display: none !important; }
+.wrap { max-width: 1160px; margin: 0 auto; display: grid; gap: 20px; }
+header { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 8px 20px; }
+h1 { font-family: var(--f-display); font-weight: 400; font-size: clamp(30px, 6vw, 46px); line-height: 1; margin: 0; color: var(--moon); text-wrap: balance; }
+h1 span { color: var(--lav); }
+h2 { font-family: var(--f-display); font-weight: 400; color: var(--moon); margin: 0; line-height: 1.1; font-size: 24px; }
+.tag { color: var(--muted); max-width: 54ch; margin: 6px 0 0; }
+.src { font-size: 12px; color: var(--muted); }
+a { color: var(--lav); }
+
+.main { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 860px) { .main { grid-template-columns: minmax(0, 1fr); } }
+
+/* Board */
+.board { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; background: var(--night-2); border: 1px solid var(--line); border-radius: 18px; padding: 10px; }
+.cell { --k: var(--muted); position: relative; aspect-ratio: 1; border-radius: 10px; padding: 5px; background: var(--night-3);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-align: center;
+  border: 1px solid transparent; min-width: 0; overflow: hidden; cursor: help; box-shadow: inset 0 -3px 0 color-mix(in srgb, var(--k) 70%, transparent); }
+.cell.gain { --k: var(--gain); } .cell.lose { --k: var(--lose); } .cell.roll { --k: var(--roll); }
+.cell.skip { --k: var(--skip); } .cell.swap { --k: var(--swap); } .cell.boost { --k: var(--boost); } .cell.move { --k: var(--lav); }
+.cell svg { width: 44%; height: auto; max-width: 40px; color: var(--k); flex: none; }
+.cell .n { position: absolute; top: 4px; left: 5px; font-family: var(--f-mono); font-size: 9px; color: var(--muted); line-height: 1; }
+.cell .fx { position: absolute; top: 4px; right: 4px; font-family: var(--f-mono); font-size: 9.5px; padding: 0 4px; border-radius: 5px; line-height: 14px; background: color-mix(in srgb, var(--k) 22%, transparent); color: var(--k); }
+.cell .lbl { font-weight: 700; font-size: clamp(8.5px, 1.2vw, 11.5px); line-height: 1.1; overflow-wrap: anywhere; }
+.cell.terminal { background: var(--moon); color: var(--night); box-shadow: none; }
+.cell.terminal svg { color: var(--night); }
+.cell.terminal .lbl { font-family: var(--f-display); font-weight: 400; font-size: clamp(11px, 1.8vw, 16px); }
+.cell.hl { border-color: var(--moon); }
+.tokens { position: absolute; left: 3px; right: 3px; bottom: 5px; display: flex; flex-wrap: wrap; justify-content: center; gap: 1px; pointer-events: none; }
+.tok { width: clamp(12px, 2vw, 17px); height: clamp(12px, 2vw, 17px); border-radius: 50%; background: var(--c); color: #141a33;
+  font-size: clamp(7px, 1.1vw, 9.5px); font-weight: 800; display: grid; place-items: center; box-shadow: 0 0 0 1.5px var(--night-3); }
+.tok.me { box-shadow: 0 0 0 2px var(--moon); }
+.tok.more { background: var(--moon); width: auto; padding: 0 3px; border-radius: 8px; }
+.cell.terminal .tok { box-shadow: 0 0 0 1.5px var(--moon); }
+
+/* Panels */
+.side { display: grid; gap: 14px; }
+.panel { background: var(--night-2); border: 1px solid var(--line); border-radius: 18px; padding: 16px; display: grid; gap: 12px; }
+.eyebrow { font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); font-weight: 700; margin: 0; }
+.hint { font-size: 13px; color: var(--muted); margin: 0; }
+.err { color: var(--lose); font-size: 13px; margin: 0; }
+
+button { font: inherit; font-weight: 800; cursor: pointer; border: 0; border-radius: 12px; padding: 11px 16px; background: var(--lav); color: var(--night); font-size: 15px; }
+button:hover { filter: brightness(1.07); }
+button:disabled { opacity: .45; cursor: default; filter: none; }
+button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); font-weight: 700; }
+button.sm { padding: 6px 11px; font-size: 13px; }
+button.big { width: 100%; font-size: 16px; padding: 14px; background: var(--moon); }
+button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px solid var(--moon); outline-offset: 2px; }
+input[type=text], select { font: inherit; color: var(--ink); background: var(--night-3); border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; width: 100%; min-width: 0; }
+select { width: auto; }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.row > input { flex: 1 1 160px; }
+label.chk { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); }
+.field { display: grid; gap: 6px; }
+.field label { font-size: 13px; font-weight: 700; }
+
+/* Home */
+.home { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 14px; }
+.or { text-align: center; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .14em; }
+
+/* Lobby */
+.code { font-family: var(--f-mono); font-size: 30px; letter-spacing: .2em; color: var(--moon); line-height: 1; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; max-height: 260px; overflow: auto; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px 4px 4px; border-radius: 99px; background: var(--night-3); font-size: 13px; font-weight: 700; max-width: 100%; }
+.chip .dot { width: 20px; height: 20px; border-radius: 50%; background: var(--c); color: var(--night); display: grid; place-items: center; font-size: 10px; flex: none; }
+.chip .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip button { background: none; color: var(--muted); padding: 0 4px; font-size: 15px; line-height: 1; }
+.chip.off { opacity: .5; }
+
+/* Turn */
+.turn { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 14px; align-items: center; }
+.die { width: 62px; height: 62px; border-radius: 14px; background: var(--moon); display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); padding: 10px; gap: 2px; box-shadow: 0 6px 0 #c7b98f; }
+.die i { width: 9px; height: 9px; border-radius: 50%; background: var(--night); place-self: center; opacity: 0; }
+.die i.on { opacity: 1; }
+.die.spin { animation: wob .5s ease; }
+@keyframes wob { 30% { transform: rotate(-14deg) scale(.94);} 70% { transform: rotate(10deg) scale(1.04);} }
+.who { font-weight: 800; font-size: 17px; overflow-wrap: anywhere; }
+
+.card { --k: var(--lav); border-radius: 16px; padding: 14px 16px; background: var(--night-3); border-top: 5px solid var(--k); display: grid; grid-template-columns: 52px minmax(0,1fr); gap: 4px 14px; align-items: start; }
+.card > svg { width: 52px; height: 52px; color: var(--k); grid-row: span 4; }
+.card.gain { --k: var(--gain); } .card.lose { --k: var(--lose); } .card.roll { --k: var(--roll); }
+.card.skip { --k: var(--skip); } .card.swap { --k: var(--swap); } .card.boost { --k: var(--boost); } .card.move { --k: var(--lav); }
+.card h3 { font-family: var(--f-display); font-weight: 400; font-size: 21px; margin: 0; color: var(--moon); line-height: 1.1; text-wrap: balance; }
+.card p { margin: 0; }
+.card .eff { font-family: var(--f-mono); font-size: 13px; color: var(--k); }
+.card .kind { font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: var(--k); font-weight: 800; }
+.card.pop { animation: pop .35s ease; }
+@keyframes pop { from { transform: translateY(6px) scale(.98); opacity: .4; } }
+
+.players { display: grid; gap: 4px; max-height: 340px; overflow: auto; }
+.pl { display: grid; grid-template-columns: 24px minmax(0,1fr) auto; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 10px; border: 1px solid transparent; }
+.pl.cur { border-color: color-mix(in srgb, var(--c) 70%, transparent); background: color-mix(in srgb, var(--c) 10%, transparent); }
+.pl .dot { width: 24px; height: 24px; border-radius: 50%; background: var(--c); color: var(--night); display: grid; place-items: center; font-weight: 800; font-size: 11px; }
+.pl .nm { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl .sub { font-size: 12px; color: var(--muted); }
+.hrs { font-family: var(--f-mono); font-size: 18px; font-variant-numeric: tabular-nums; color: var(--moon); text-align: right; line-height: 1; }
+.hrs small { font-size: 10px; color: var(--muted); display: block; margin-top: 2px; }
+
+.log { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 200px; overflow: auto; font-size: 13px; }
+.log li { display: grid; grid-template-columns: 10px minmax(0,1fr); gap: 8px; color: var(--muted); }
+.log li::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--c, var(--muted)); margin-top: 6px; }
+.log li b { color: var(--ink); }
+
+/* Guide */
+.guide { display: grid; gap: 10px; }
+details { background: var(--night-2); border: 1px solid var(--line); border-radius: 14px; padding: 4px 16px; }
+summary { cursor: pointer; font-weight: 800; padding: 10px 0; }
+details[open] summary { border-bottom: 1px solid var(--line); margin-bottom: 10px; }
+details > div { padding-bottom: 14px; }
+.spaces { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 10px; }
+.spaces .card h3 { font-size: 17px; }
+.spaces .card p { font-size: 13.5px; }
+.needs { border-collapse: collapse; width: 100%; max-width: 420px; font-variant-numeric: tabular-nums; }
+.needs td { padding: 7px 0; border-bottom: 1px solid var(--line); }
+.needs td:last-child { text-align: right; font-family: var(--f-mono); color: var(--moon); }
+.prose { max-width: 66ch; }
+.prose ol { padding-left: 20px; margin: 6px 0; }
+
+.overlay { position: fixed; inset: 0; background: color-mix(in srgb, var(--night) 84%, transparent); display: grid; place-items: center; z-index: 20;
+  padding: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
+.endbox { background: var(--night-2); border: 1px solid var(--line); border-radius: 22px; padding: 24px; width: min(480px, 100%); display: grid; gap: 14px; max-height: 100%; overflow: auto; }
+.endbox h2 { font-size: 32px; }
+.ranks { display: grid; gap: 6px; max-height: 320px; overflow: auto; }
+.rank { display: grid; grid-template-columns: 26px minmax(0,1fr) auto; gap: 10px; align-items: center; }
+.rank .dot { width: 26px; height: 26px; border-radius: 50%; background: var(--c); color: var(--night); display: grid; place-items: center; font-weight: 800; font-size: 11px; }
+.toast { position: fixed; left: 50%; bottom: max(20px, env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--moon); color: var(--night); font-weight: 800; padding: 10px 16px; border-radius: 12px; z-index: 30; max-width: calc(100% - 32px); }
+@media (prefers-reduced-motion: reduce) { .die.spin, .card.pop { animation: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Sleep <span>Deprivation</span> Game</h1>
+      <p class="tag">Race across the board and bank as many hours of sleep as you can. Every space teaches something about what sleep, or the lack of it, does to your brain.</p>
+    </div>
+    <div class="src">Adapted from the <a href="https://www.brainfacts.org/for-educators/for-the-classroom/2018/sleep-deprivation-game-081418" target="_blank" rel="noopener">BrainFacts.org classroom board game</a></div>
+  </header>
+
+  <!-- Home: host, local, join -->
+  <section id="home" class="home" hidden>
+    <div class="panel">
+      <p class="eyebrow">Play online</p>
+      <h2>Host a new game</h2>
+      <p class="hint">You get a private link for this game. Anyone who opens it can join, up to 30 players. Keep this tab open while you play; your browser runs the game.</p>
+      <div class="field"><label for="hostName">Your name</label><input type="text" id="hostName" maxlength="16" placeholder="e.g. Micah"></div>
+      <button class="big" id="hostBtn" type="button">Create game link</button>
+      <p class="err" id="hostErr" hidden></p>
+    </div>
+    <div class="panel">
+      <p class="eyebrow">Have a code?</p>
+      <h2>Join a game</h2>
+      <div class="field"><label for="joinCode">Game code</label><input type="text" id="joinCode" maxlength="6" placeholder="6 letters" style="text-transform:uppercase;font-family:var(--f-mono);letter-spacing:.15em"></div>
+      <button id="joinCodeBtn" type="button">Go to game</button>
+      <p class="or">or</p>
+      <p class="eyebrow">Same room, one screen</p>
+      <p class="hint">Pass one device around, or play against the computer.</p>
+      <button class="ghost" id="localBtn" type="button">Play on this device</button>
+    </div>
+  </section>
+
+  <!-- Join name -->
+  <section id="joinScreen" class="home" hidden>
+    <div class="panel">
+      <p class="eyebrow">You're invited</p>
+      <h2>Join game <span id="joinCodeLbl" class="code" style="font-size:22px"></span></h2>
+      <div class="field"><label for="joinName">Your name</label><input type="text" id="joinName" maxlength="16" placeholder="Name other players will see"></div>
+      <button class="big" id="joinBtn" type="button">Join game</button>
+      <p class="hint" id="joinStatus"></p>
+      <p class="err" id="joinErr" hidden></p>
+      <button class="ghost sm" id="backHome" type="button" style="justify-self:start">Host my own game instead</button>
+    </div>
+  </section>
+
+  <!-- Room -->
+  <div class="main" id="room" hidden>
+    <div class="board" id="board" aria-label="Game board"></div>
+    <div class="side">
+      <section class="panel" id="lobby" hidden>
+        <p class="eyebrow" id="lobbyEyebrow">Game lobby</p>
+        <div id="shareBox" class="field">
+          <label for="shareLink">Share this link to invite players</label>
+          <div class="row"><input type="text" id="shareLink" readonly><button id="copyBtn" type="button">Copy</button></div>
+          <p class="hint">Code <span class="code" id="codeLbl" style="font-size:18px"></span></p>
+          <p class="err" id="fileWarn" hidden>This page is open from a file on your computer, so others can't use this link. Host the file online first (see the instructions that came with it).</p>
+        </div>
+        <p class="eyebrow"><span id="count">0</span> / 30 players</p>
+        <div class="chips" id="chips"></div>
+        <div id="hostControls" class="field">
+          <div class="row" id="localAdd" hidden><input type="text" id="localName" maxlength="16" placeholder="Player name"><button type="button" id="addPerson">Add player</button></div>
+          <div class="row">
+            <button class="ghost sm" id="addCpu" type="button">Add computer player</button>
+            <label class="chk">Turn timer <select id="timer"><option value="0">Off</option><option value="15">15 s</option><option value="30" selected>30 s</option><option value="60">60 s</option></select></label>
+          </div>
+          <button class="big" id="startBtn" type="button">Start game</button>
+          <p class="hint" id="startHint"></p>
+        </div>
+        <p class="hint" id="waitMsg" hidden>Waiting for the host to start the game…</p>
+      </section>
+
+      <section class="panel" id="play" hidden>
+        <div class="turn">
+          <div class="die" id="die" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+          <div><div class="who" id="who"></div><p class="hint" id="hint"></p></div>
+        </div>
+        <button class="big" id="go" type="button">Roll the die</button>
+        <button class="ghost sm" id="nudge" type="button" hidden>Roll for them</button>
+        <div class="row" style="justify-content:space-between">
+          <span class="hint" id="youAre"></span>
+          <button class="ghost sm" id="shareAgain" type="button">Copy invite link</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <p class="eyebrow">Last space</p>
+        <div id="card"></div>
+      </section>
+
+      <section class="panel" id="playersPanel">
+        <p class="eyebrow">Sleepers</p>
+        <div class="players" id="players"></div>
+      </section>
+
+      <section class="panel">
+        <p class="eyebrow">Dream log</p>
+        <ul class="log" id="log"></ul>
+      </section>
+    </div>
+  </div>
+
+  <div class="guide">
+    <details>
+      <summary>How to play</summary>
+      <div class="prose">
+        <ol>
+          <li>Everyone starts on Start with 2 Hour Cards.</li>
+          <li>On your turn, roll the die and move that many spaces. The space you land on gives or takes hours, moves you, makes you skip a turn, or lets you roll again.</li>
+          <li>Memory Booster spaces draw a card. Good sleep helps memory, mood, and focus, so most of those cards reward you.</li>
+          <li>If you run out of Hour Cards, keep playing. You can still earn more.</li>
+          <li>The game ends as soon as one player reaches End. Count the hours: most sleep wins. Reaching End first doesn't win by itself.</li>
+        </ol>
+        <p>“Next player” is the player whose turn comes after yours. “Previous player” is the one before you. If the turn timer runs out, the game rolls for you so a big group keeps moving.</p>
+      </div>
+    </details>
+    <details>
+      <summary>Every space, explained</summary>
+      <div class="spaces" id="guide"></div>
+    </details>
+    <details>
+      <summary>How much sleep do people need?</summary>
+      <div class="prose">
+        <p>Average sleep per day drops as children grow up. Teenagers need more than most think.</p>
+        <table class="needs">
+          <tr><td>6 months old</td><td>15 hr</td></tr>
+          <tr><td>2 years old</td><td>14 hr</td></tr>
+          <tr><td>3–4 years old</td><td>12 hr</td></tr>
+          <tr><td>Teenagers</td><td>8½–9 hr</td></tr>
+        </table>
+        <p>When people don't get enough, concentration, coordination, memory, and mood all suffer.</p>
+      </div>
+    </details>
+  </div>
+</div>
+
+<div class="overlay" id="endOverlay" hidden>
+  <div class="endbox" role="dialog" aria-modal="true" aria-labelledby="endTitle">
+    <p class="eyebrow" id="endEyebrow"></p>
+    <h2 id="endTitle"></h2>
+    <div class="ranks" id="ranks"></div>
+    <p class="hint" id="endNote"></p>
+    <div class="row">
+      <button id="again" type="button">Play again</button>
+      <button class="ghost" id="closeEnd" type="button">Look at the board</button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(function () {
+  "use strict";
+  const MAX = 30;
+  const PREFIX = "bf-sleepgame-v1-";
+
+  // ---------- Icons (24x24 line art) ----------
+  const I = {
+    start: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/><path d="M16 3.5l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6z"/>',
+    end: '<circle cx="12" cy="14" r="4"/><path d="M12 5v2M4.5 8.5l1.4 1.4M19.5 8.5l-1.4 1.4M2 18h20M2 14h2M20 14h2"/>',
+    hour: '<path d="M7 3h10M7 21h10M8 3c0 6 8 6 8 9s-8 3-8 9M16 3c0 6-8 6-8 9s8 3 8 9"/>',
+    booster: '<path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6 6.6 19.5l1.2-6-4.5-4.2 6.1-.7z"/>',
+    caffeine: '<path d="M4 10h12v4a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z"/><path d="M16 11h1.5a2.5 2.5 0 0 1 0 5H16M8 3c-1 1.5 1 2 0 4M12 3c-1 1.5 1 2 0 4"/>',
+    canceled: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4M9.5 13l5 5M14.5 13l-5 5"/>',
+    fallback: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M3 4v4h4"/>',
+    spring: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l-3 2M21 4v4h-4"/>',
+    hotel: '<path d="M3 19V6M3 14h18v5M21 14a3 3 0 0 0-3-3h-7v3"/><circle cx="7" cy="11" r="1.8"/>',
+    hypnic: '<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>',
+    insomnia: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+    pillow: '<path d="M4 7.5c3-1.5 13-1.5 16 0v9c-3 1.5-13 1.5-16 0z"/><path d="M8 10.5c2 1 6 1 8 0"/>',
+    movie: '<rect x="3" y="9" width="18" height="12" rx="1.5"/><path d="M3 9l15.5-5 1 3.5M8 7.4l2 3M13 5.8l2 3"/>',
+    narco: '<path d="M4 7h6l-6 6h6M13 12h4l-4 5h4M17 3h4l-4 4h4"/>',
+    terrors: '<path d="M6 20V10a6 6 0 0 1 12 0v10l-2-1.5-2 1.5-2-1.5-2 1.5-2-1.5z"/><path d="M9.5 10.5h.01M14.5 10.5h.01M10 14c1.2.8 2.8.8 4 0"/>',
+    noisy: '<path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>',
+    redeye: '<path d="M21 3L3 10.5l7 2.5 2.5 7z"/><path d="M10 13l5-5"/>',
+    sibling: '<path d="M3 8.5c2.5-1.2 9.5-1.2 12 0v7c-2.5 1.2-9.5 1.2-12 0z"/><path d="M17 12h5M19.5 9l2.5 3-2.5 3"/>',
+    paralysis: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4M12 15v2"/>',
+    sleepover: '<path d="M3 11l9-7 9 7v9H3z"/><path d="M9 20v-6h6v6"/>',
+    fullnight: '<path d="M19 14.5A7.5 7.5 0 1 1 9.5 5a6 6 0 0 0 9.5 9.5z"/><path d="M6 19h12"/>',
+    sleepwalk: '<ellipse cx="8" cy="8" rx="2.5" ry="4"/><ellipse cx="16" cy="15" rx="2.5" ry="4"/><path d="M5 2.5h.01M8 1.8h.01M13 9.5h.01M16 8.8h.01"/>',
+    talk: '<path d="M4 5h16v11H9l-5 4z"/><path d="M8 9.5h8M8 12.5h5"/>',
+    summer: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M5 19l1.5-1.5M17.5 6.5L19 5"/>',
+    screen: '<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2M10 6.5c1.5-1 2.5-1 4 0"/>',
+    app: '<path d="M4 20V11M10 20V5M16 20v-6M2 20h20"/><path d="M19 4.5a2.5 2.5 0 0 1-2.5 2.5"/>',
+    stage1: '<path d="M2 12c2-4 4-4 6 0s4 4 6 0 4-4 6 0"/><path d="M16 5h3l-3 3h3"/>'
+  };
+  const icon = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[k] || I.booster}</svg>`;
+
+  // ---------- Content ----------
+  const SP = {
+    start:   { name: "Start", short: "Start", kind: "terminal" },
+    end:     { name: "End", short: "End", kind: "terminal" },
+    hour:    { name: "Bonus Hour", short: "+1 Hour", kind: "gain", amt: 1, fx: "+1", text: "A free hour of rest. Bank it." },
+    booster: { name: "Memory Booster", short: "Memory Booster", kind: "boost", fx: "★", text: "A good night's sleep strengthens memory and helps creative thinking. Draw a Memory Booster card." },
+    caffeine:{ name: "Caffeine", short: "Caffeine", kind: "lose", amt: 1, fx: "−1", text: "Caffeine, found in coffee, tea, soda and energy drinks, is the world's most widely used brain stimulant. It keeps you alert by blocking adenosine, a molecule that builds up and makes you sleepy, from binding to receptors on your neurons." },
+    canceled:{ name: "Canceled Class", short: "Canceled class", kind: "gain", amt: 1, fx: "+1", text: "Your morning class got canceled, so you get to sleep in." },
+    fallback:{ name: "Fall Back", short: "Fall back", kind: "gain", amt: 1, fx: "+1", text: "Daylight Saving Time ends and the clocks go back an hour. That's an extra hour in bed." },
+    hotel:   { name: "First Night in a Hotel", short: "Hotel night", kind: "roll", fx: "↻", text: "Researchers at Brown University found the “first-night effect”: in an unfamiliar place, one half of your brain stays more alert while you sleep, so you rest less deeply." },
+    hypnic:  { name: "Hypnic Jerk", short: "Hypnic jerk", kind: "skip", fx: "⏸", text: "That sudden twitch as you drift off, often with a feeling of falling, is a hypnic jerk. Stress, anxiety, fatigue and caffeine can all make it more likely." },
+    insomnia:{ name: "Insomnia", short: "Insomnia", kind: "lose", amt: 2, fx: "−2", text: "Insomnia means being unable to fall or stay asleep. Stress, travel and caffeine are common causes." },
+    pillow:  { name: "Left Pillow on a Plane", short: "Lost pillow", kind: "lose", amt: 1, fx: "−1", text: "You left your pillow on the plane. Tonight's sleep won't be as comfortable." },
+    movie:   { name: "Midnight Movie", short: "Midnight movie", kind: "lose", amt: 1, fx: "−1", text: "Losing sleep does more than make you grumpy. It can make long-term memories harder to form, raise anger, slur your speech, and over time is linked to brain shrinkage." },
+    narco:   { name: "Narcolepsy", short: "Narcolepsy", kind: "roll", fx: "↻", text: "Narcolepsy is a long-term sleep disorder with heavy daytime sleepiness. In severe cases people fall asleep suddenly, several times a day." },
+    terrors: { name: "Night Terrors", short: "Night terrors", kind: "lose", amt: 2, fx: "−2", text: "Night terrors usually start around ages 3 to 6 and fade by adolescence. A child may scream, cry and talk with eyes open, then wake confused with no memory of a dream, unlike a nightmare." },
+    noisy:   { name: "Noisy Neighbor", short: "Noisy neighbor", kind: "swap", dir: "giveNext", fx: "→1", text: "Music next door kept you up. Without enough sleep, memory and decision-making get worse." },
+    redeye:  { name: "Red-Eye Flight", short: "Red-eye", kind: "roll", fx: "↻", text: "Overnight flights put you in an unfamiliar seat and throw off your normal sleep cycle." },
+    sibling: { name: "Sibling Steals Your Pillow", short: "Pillow thief", kind: "swap", dir: "givePrev", fx: "←1", text: "Your sibling made off with your pillow. Hand over an hour." },
+    paralysis:{ name: "Sleep Paralysis", short: "Sleep paralysis", kind: "skip", fx: "⏸", text: "Sleep paralysis is a brief inability to move or speak while falling asleep or waking up. It is harmless but can be frightening if you don't know what's happening." },
+    sleepover:{ name: "Sleepover", short: "Sleepover", kind: "move", fx: "⇢", text: "Jump ahead to the nearest player in front of you. You don't follow the instructions on that space." },
+    fullnight:{ name: "Slept Through the Night", short: "Full night", kind: "roll", fx: "↻", text: "You slept at least 8 hours and cycled through all the stages of sleep." },
+    sleepwalk:{ name: "Somnambulism", short: "Sleepwalking", kind: "move", fx: "↶", text: "Sleepwalking happens during non-REM sleep. About one in three children sleepwalk at some point, and around 3 percent do it at least once a month." },
+    talk:    { name: "Somniloquy", short: "Sleep talking", kind: "swap", dir: "takeNext", fx: "+1←", text: "Sleep talking can happen in REM or non-REM sleep. It's usually mumbled nonsense, though words spoken during REM sleep tend to be a little clearer." },
+    spring:  { name: "Spring Forward", short: "Spring forward", kind: "lose", amt: 1, fx: "−1", text: "Daylight Saving Time starts and the clocks jump ahead an hour. You lose an hour of sleep." },
+    summer:  { name: "Summer Vacation", short: "Summer break", kind: "gain", amt: 2, fx: "+2", text: "No more early classes. Time to sleep in." },
+    screen:  { name: "Too Much Screen Time", short: "Screen time", kind: "lose", amt: 1, fx: "−1", text: "Screens give off blue light, which tricks your brain into thinking it's daytime. Scrolling before bed keeps you awake." },
+    app:     { name: "Use a Sleep App", short: "Sleep app", kind: "gain", amt: 1, fx: "+1", text: "Sleep is defined by less movement, weaker responses to the outside world, lying down with eyes closed, and being easy to reverse, which separates it from a coma or hibernation. Tracking your sleep helps you make changes that improve it." },
+    stage1:  { name: "Woke Up in Stage 1", short: "Stage 1", kind: "gain", amt: 1, fx: "+1", text: "Non-REM sleep begins as you lie down and close your eyes. Fast beta brain waves give way to slower alpha waves, then slower theta waves. Stage 1 is the lightest stage and the easiest to wake from." }
+  };
+
+  const BOARD = ["start","stage1","booster","caffeine","canceled","hypnic","hour","screen","narco","booster","noisy",
+    "fallback","movie","sleepwalk","sleepover","hour","insomnia","booster","hotel","sibling","app","spring","paralysis",
+    "hour","talk","booster","pillow","redeye","canceled","terrors","fullnight","caffeine","booster","sleepwalk","summer",
+    "narco","paralysis","screen","hour","booster","movie","end"];
+  const END = BOARD.length - 1;
+
+  const BOOSTERS = [
+    ["You pull an all-nighter to cram for a test.", -1, "Memory"],
+    ["You remember the shortcut to school.", 1, "Memory"],
+    ["You remember your best friend's birthday.", 1, "Memory"],
+    ["You complete a full sleep cycle.", 1, "Sleep"],
+    ["You have a cup of coffee in the afternoon.", -1, "Caffeine"],
+    ["You read a book instead of scrolling your phone before bed.", 1, "Habits"],
+    ["You volunteer for a sleep study.", 2, "Sleep"],
+    ["You find the wallet you misplaced.", 1, "Memory"],
+    ["You ace your latest quiz.", 1, "Memory"],
+    ["You remember your parent's work number.", 1, "Memory"],
+    ["You keep picking fights with your younger sibling.", -1, "Mood"],
+    ["You're feeling generous and treat a friend to lunch.", 1, "Mood"],
+    ["You skip the soda at lunch.", 1, "Caffeine"],
+    ["You recall every country for your geography test.", 2, "Memory"],
+    ["You nail the punchline of your favorite joke.", 2, "Memory"],
+    ["You remember where your parent parked at the store.", 1, "Memory"],
+    ["Studying for biology feels easier than usual.", 1, "Learning"],
+    ["You slur your words during a class presentation.", -1, "Coordination"],
+    ["You feel calm and relaxed all day.", 2, "Mood"],
+    ["You forget the last number of your locker combination.", -2, "Memory"],
+    ["You don't need coffee to get going this morning.", 2, "Caffeine"],
+    ["You get frustrated less often.", 1, "Mood"],
+    ["You imagine you forgot your homework, but it's right there.", -1, "Perception"],
+    ["You go to bed early.", 2, "Habits"],
+    ["You offer to tutor a classmate in math.", 1, "Mood"],
+    ["You binge a whole bag of your favorite chips.", -1, "Appetite"],
+    ["You remember the fastest way to the movie theater.", 1, "Memory"],
+    ["You pick up a new skill quickly.", 1, "Learning"],
+    ["You blank on your third-grade teacher's name when you run into her.", -1, "Memory"],
+    ["You take a nap that lasts less than an hour.", 1, "Habits"],
+    ["You find your missing English homework.", 1, "Memory"],
+    ["You get along better with your siblings.", 1, "Mood"],
+    ["You remember the due date for your English paper.", 1, "Memory"],
+    ["You can't remember whether you already fed the dog.", -1, "Memory"],
+    ["You're in such a good mood you invite a friend to the movies.", 1, "Mood"],
+    ["You pass on an energy drink while studying.", 1, "Caffeine"],
+    ["You go to bed early.", 2, "Habits"],
+    ["You recite your audition monologue perfectly.", 1, "Memory"],
+    ["You zone out during an important lecture and take no notes.", -1, "Concentration"],
+    ["You're in a good mood and offer to cook dinner.", 1, "Mood"]
+  ];
+  const KIND_LABEL = { gain: "Gain sleep", lose: "Lose sleep", roll: "Roll again", skip: "Lose a turn", swap: "Trade hours", move: "Move", boost: "Memory Booster" };
+  const CPU_NAMES = ["Dozy","Snooze","Nappy","Yawn","Drowsy","Siesta","Pillow","Blanket","Sandman","Slumber","Nod","Doze","Lullaby","Dreamy","Cozy"];
+
+  // ---------- Helpers ----------
+  const $ = id => document.getElementById(id);
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const wait = ms => new Promise(r => setTimeout(r, reduce ? Math.min(ms, 40) : ms));
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const initial = n => (String(n).trim().charAt(0) || "?").toUpperCase();
+  const colorFor = i => `hsl(${Math.round((i * 137.508 + 40) % 360)} 72% 72%)`;
+  const rid = () => Math.random().toString(36).slice(2, 10);
+  const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+  const store = {
+    get(k) { try { return sessionStorage.getItem(k); } catch (e) { return null; } },
+    set(k, v) { try { sessionStorage.setItem(k, v); } catch (e) {} },
+    lget(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    lset(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  };
+  function newCode() { const A = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; let s = ""; for (let i = 0; i < 6; i++) s += A[Math.floor(Math.random() * A.length)]; return s; }
+  function toast(msg) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, 2200); }
+
+  // ---------- App state ----------
+  // mode: "local" (one device), "host" (runs the game for a room), "client" (joined a room)
+  const N = { mode: null, peer: null, conns: new Map(), hostConn: null, myPid: null, code: null };
+  let S = null;              // authoritative state (host/local) or mirrored state (client)
+  let deck = [];
+  let busy = false;
+  let timerHandle = null;
+  let localDeadline = 0;
+  let lastCardSeq = -1;
+
+  function blankState(code) {
+    return { code, phase: "lobby", players: [], cur: 0, awaiting: "roll", again: false, die: 5, card: null, cardSeq: 0, log: [], timer: 30, end: null, deadline: 0, nextColor: 0 };
+  }
+  function addPlayer(name, cpu, id) {
+    const p = { id: id || rid(), name: String(name || "Player").slice(0, 16), cpu: !!cpu, connected: true, color: colorFor(S.nextColor++), pos: 0, hours: 2, skip: false, gained: 0, lost: 0 };
+    S.players.push(p);
+    return p;
+  }
+  function addLog(html, color) { S.log.unshift({ h: html, c: color }); if (S.log.length > 60) S.log.length = 60; }
+
+  // ---------- Networking ----------
+  function broadcast() {
+    if (N.mode !== "host") return;
+    const left = S.deadline ? Math.max(0, S.deadline - Date.now()) : 0;
+    const msg = { t: "state", s: S, left };
+    N.conns.forEach(c => { if (c.conn.open) { try { c.conn.send(msg); } catch (e) {} } });
+  }
+  function sync() { broadcast(); render(); }
+
+  function startHost(name) {
+    if (typeof Peer === "undefined") { showErr("hostErr", "Couldn't load the online play library. Check your internet connection and reload."); return; }
+    $("hostBtn").disabled = true; $("hostBtn").textContent = "Creating link…";
+    const code = newCode();
+    const peer = new Peer(PREFIX + code, { debug: 0 });
+    let opened = false;
+    peer.on("open", () => {
+      opened = true;
+      N.mode = "host"; N.peer = peer; N.code = code;
+      S = blankState(code);
+      const me = addPlayer(name || "Host", false);
+      N.myPid = me.id;
+      store.lset("sg-name", name);
+      history.replaceState(null, "", "#" + code);
+      addLog(`<b>${esc(me.name)}</b> opened the game.`, me.color);
+      showRoom(); sync();
+    });
+    peer.on("connection", conn => {
+      N.conns.set(conn.peer, { conn, pid: null });
+      conn.on("data", a => hostHandle(a, conn));
+      conn.on("close", () => dropConn(conn));
+      conn.on("error", () => dropConn(conn));
+    });
+    peer.on("disconnected", () => { try { peer.reconnect(); } catch (e) {} });
+    peer.on("error", e => {
+      if (!opened && e && e.type === "unavailable-id") { peer.destroy(); startHost(name); return; }
+      if (!opened) { $("hostBtn").disabled = false; $("hostBtn").textContent = "Create game link"; showErr("hostErr", "Couldn't reach the matchmaking server. Check your connection and try again."); }
+    });
+  }
+
+  function dropConn(conn) {
+    const entry = N.conns.get(conn.peer);
+    N.conns.delete(conn.peer);
+    if (!entry || !entry.pid || !S) return;
+    const p = S.players.find(x => x.id === entry.pid);
+    if (!p) return;
+    if (S.phase === "lobby") { S.players = S.players.filter(x => x !== p); addLog(`<b>${esc(p.name)}</b> left.`, p.color); }
+    else { p.connected = false; addLog(`<b>${esc(p.name)}</b> disconnected. The game will play their turns.`, p.color); scheduleTurn(); }
+    sync();
+  }
+
+  function hostHandle(a, conn) {
+    const entry = N.conns.get(conn.peer);
+    if (!a || !entry) return;
+    if (a.t === "join") {
+      let p = a.pid && S.players.find(x => x.id === a.pid && !x.cpu);
+      if (p) { p.connected = true; if (a.name) p.name = String(a.name).slice(0, 16); addLog(`<b>${esc(p.name)}</b> reconnected.`, p.color); }
+      else if (S.phase !== "lobby") { conn.send({ t: "you", pid: null, spectator: true }); conn.send({ t: "state", s: S, left: 0 }); return; }
+      else if (S.players.length >= MAX) { conn.send({ t: "reject", why: "This game is full (30 players)." }); setTimeout(() => conn.close(), 300); return; }
+      else { p = addPlayer(a.name || "Player", false); addLog(`<b>${esc(p.name)}</b> joined.`, p.color); }
+      entry.pid = p.id;
+      conn.send({ t: "you", pid: p.id });
+      sync();
+      if (S.phase === "play") scheduleTurn();
+      return;
+    }
+    act(a.t, entry.pid);
+  }
+
+  function startClient(code, name) {
+    if (typeof Peer === "undefined") { showErr("joinErr", "Couldn't load the online play library. Check your internet connection and reload."); return; }
+    $("joinBtn").disabled = true; $("joinStatus").textContent = "Connecting…"; $("joinErr").hidden = true;
+    store.lset("sg-name", name);
+    const peer = new Peer({ debug: 0 });
+    N.peer = peer; N.code = code;
+    let joined = false;
+    const fail = msg => { if (joined) return; $("joinBtn").disabled = false; $("joinStatus").textContent = ""; showErr("joinErr", msg); try { peer.destroy(); } catch (e) {} };
+    const to = setTimeout(() => fail("Couldn't reach that game. Check the code, and make sure the host still has the game open."), 15000);
+    peer.on("error", e => { clearTimeout(to); fail(e && e.type === "peer-unavailable" ? "No game with that code is open right now. The host may have closed it." : "Couldn't connect. Check your internet and try again."); });
+    peer.on("open", () => {
+      const conn = peer.connect(PREFIX + code, { reliable: true });
+      N.hostConn = conn;
+      conn.on("open", () => { conn.send({ t: "join", name, pid: store.get("sg-pid-" + code) }); });
+      conn.on("data", m => {
+        if (!m) return;
+        if (m.t === "reject") { clearTimeout(to); if (joined) { toast(m.why); N.myPid = null; } else fail(m.why); return; }
+        if (m.t === "you") { N.myPid = m.pid; if (m.pid) store.set("sg-pid-" + code, m.pid); if (m.spectator) toast("The game already started. You're watching."); }
+        if (m.t === "state") {
+          if (!joined) { joined = true; clearTimeout(to); N.mode = "client"; showRoom(); }
+          const prevDie = S && S.die, prevRoll = S && S.rollSeq;
+          S = m.s;
+          localDeadline = m.left ? Date.now() + m.left : 0;
+          if (S.rollSeq !== prevRoll) spinDie();
+          render();
+        }
+      });
+      conn.on("close", () => { if (joined) { toast("Lost connection to the host."); $("hint").textContent = "Disconnected from the host. Reload the link to rejoin."; $("go").disabled = true; } });
+    });
+  }
+
+  function act(type, pid) {
+    // Called on host/local with the acting player's id (local mode: "local")
+    if (N.mode === "client") { if (N.hostConn && N.hostConn.open) N.hostConn.send({ t: type }); return; }
+    if (!S) return;
+    const isHostUser = N.mode === "local" || pid === N.myPid;
+    if (S.phase === "play") {
+      const p = S.players[S.cur];
+      const own = N.mode === "local" ? !p.cpu : (p.id === pid);
+      if (type === "roll" && S.awaiting === "roll" && own) roll();
+      else if (type === "nudge" && S.awaiting === "roll" && isHostUser && !p.cpu) { addLog(`The host rolled for <b>${esc(p.name)}</b>.`, p.color); roll(); }
+      else if (type === "next" && S.awaiting === "next" && (own || isHostUser)) advance();
+    }
+    if (!isHostUser) return;
+    if (type === "start" && S.phase === "lobby" && S.players.length >= 2) startGame();
+    if (type === "again" && S.phase === "over") resetToLobby();
+  }
+
+  // ---------- Game engine (host/local) ----------
+  function startGame() {
+    deck = shuffle(BOOSTERS.slice());
+    S.players.forEach(p => { p.pos = 0; p.hours = 2; p.skip = false; p.gained = 0; p.lost = 0; });
+    S.phase = "play"; S.cur = 0; S.awaiting = "roll"; S.again = false; S.end = null; S.log = [];
+    S.timer = Number($("timer").value) || 0;
+    addLog(`Lights out! ${S.players.length} sleepers, 2 hours each. Most sleep at the End wins.`, "var(--lav)");
+    setCard({ kind: "move", ic: "start", label: "Lights out", title: "Goodnight, sleepers", text: `${esc(S.players[0].name)} rolls first. Land on spaces to collect or lose Hour Cards, and learn what each one does to the brain.`, eff: "Teens need 8½–9 hours a night" });
+    sync(); scheduleTurn();
+  }
+  function resetToLobby() {
+    clearTimeout(timerHandle);
+    S.phase = "lobby"; S.end = null; S.deadline = 0;
+    S.players = S.players.filter(p => p.cpu || p.connected);
+    S.players.forEach(p => { p.pos = 0; p.hours = 2; p.skip = false; });
+    addLog("Back to the lobby for another round.", "var(--lav)");
+    sync();
+  }
+  function setCard(c) { S.card = c; S.cardSeq++; }
+  const nextP = p => S.players[(S.players.indexOf(p) + 1) % S.players.length];
+  const prevP = p => S.players[(S.players.indexOf(p) - 1 + S.players.length) % S.players.length];
+  function change(p, d) { const b = p.hours; p.hours = Math.max(0, p.hours + d); const r = p.hours - b; if (r > 0) p.gained += r; else p.lost -= r; return r; }
+  const autoPlays = p => p.cpu || (N.mode === "host" && !p.connected);
+
+  async function roll() {
+    if (busy || S.phase !== "play" || S.awaiting !== "roll") return;
+    busy = true; clearTimeout(timerHandle); S.deadline = 0;
+    const p = S.players[S.cur];
+    S.rollSeq = (S.rollSeq || 0) + 1;
+    spinDie();
+    const n = 1 + Math.floor(Math.random() * 6);
+    S.die = n; S.rolling = true; sync();
+    await wait(450);
+    addLog(`<b>${esc(p.name)}</b> rolled a ${n}.`, p.color);
+    S.again = false;
+    for (let s = 0; s < n && p.pos < END; s++) { p.pos++; sync(); await wait(180); }
+    S.rolling = false;
+    await land(p);
+    busy = false;
+    sync();
+    if (S.phase === "play") scheduleTurn();
+  }
+
+  async function land(p) {
+    if (p.pos >= END) { p.pos = END; return finish(p); }
+    const key = BOARD[p.pos], s = SP[key];
+    const c = { kind: s.kind, ic: key, label: KIND_LABEL[s.kind], title: s.name, text: s.text, eff: effectText(s), who: p.name, whoColor: p.color };
+    let note = "";
+    switch (s.kind) {
+      case "gain": change(p, s.amt); note = `gained ${s.amt}`; break;
+      case "lose": { const r = change(p, -s.amt); note = r === 0 ? "had no hours left to lose" : `lost ${-r}`; break; }
+      case "roll": S.again = true; note = "rolls again"; break;
+      case "skip": p.skip = true; note = "will skip the next turn"; break;
+      case "swap": {
+        if (s.dir === "takeNext") {
+          const o = nextP(p);
+          if (o.hours > 0) { change(o, -1); change(p, 1); note = `took 1 hour from ${esc(o.name)}`; c.eff += ` · ${o.name} → ${p.name}`; }
+          else { note = `tried to take an hour, but ${esc(o.name)} had none`; c.eff += ` · ${o.name} has none`; }
+        } else {
+          const o = s.dir === "giveNext" ? nextP(p) : prevP(p);
+          if (p.hours > 0) { change(p, -1); change(o, 1); note = `gave 1 hour to ${esc(o.name)}`; c.eff += ` · ${p.name} → ${o.name}`; }
+          else { note = "had no hours to give"; c.eff += " · none to give"; }
+        }
+        break;
+      }
+      case "move": {
+        if (key === "sleepwalk") {
+          p.pos -= 1; sync(); await wait(200);
+          note = `sleepwalked back to space ${p.pos}`; c.eff = "Moved back one space. You stay there.";
+        } else {
+          const ahead = S.players.filter(o => o !== p && o.pos > p.pos).sort((a, b) => a.pos - b.pos)[0];
+          if (ahead) {
+            p.pos = ahead.pos; sync(); await wait(200);
+            note = `crashed ${esc(ahead.name)}'s sleepover on space ${p.pos === END ? "End" : p.pos}`;
+            c.eff = `Jumped to ${ahead.name}. That space's instructions don't apply.`;
+            if (p.pos >= END) { setCard(c); addLog(`<b>${esc(p.name)}</b> ${note}.`, p.color); return finish(p); }
+          } else { note = "had no one ahead to visit"; c.eff = "No one is ahead of you. Stay put."; }
+        }
+        break;
+      }
+      case "boost": {
+        if (!deck.length) deck = shuffle(BOOSTERS.slice());
+        const [t, d, tag] = deck.pop();
+        const r = change(p, d);
+        c.title = "Memory Booster"; c.label = `Memory Booster · ${tag}`; c.kind = d > 0 ? "boost" : "lose"; c.text = esc(t);
+        c.eff = d > 0 ? `Gain ${d} Hour${d > 1 ? "s" : ""}` : `Lose ${-d} Hour${d < -1 ? "s" : ""}${r === 0 ? " · you had none left" : ""}`;
+        note = `drew “${esc(t.replace(/\.$/, ""))}” (${d > 0 ? "+" : ""}${d})`;
+        break;
+      }
+    }
+    setCard(c);
+    addLog(`<b>${esc(p.name)}</b> landed on ${esc(s.name)} and ${note}.`, p.color);
+    S.awaiting = S.again ? "roll" : "next";
+  }
+
+  function advance() {
+    if (busy || S.phase !== "play") return;
+    clearTimeout(timerHandle);
+    S.again = false;
+    for (let guard = 0; guard < S.players.length + 1; guard++) {
+      S.cur = (S.cur + 1) % S.players.length;
+      const p = S.players[S.cur];
+      if (p.skip) { p.skip = false; addLog(`<b>${esc(p.name)}</b> is still recovering and skips this turn.`, p.color); }
+      else break;
+    }
+    S.awaiting = "roll";
+    sync(); scheduleTurn();
+  }
+
+  function scheduleTurn() {
+    if (N.mode === "client" || !S || S.phase !== "play" || busy) return;
+    clearTimeout(timerHandle); S.deadline = 0;
+    const p = S.players[S.cur];
+    const big = S.players.length > 6;
+    let ms = 0, fn = null;
+    if (S.awaiting === "roll") {
+      if (autoPlays(p)) { ms = S.again ? 1200 : 800; fn = roll; }
+      else if (S.timer) { ms = S.timer * 1000; fn = roll; S.deadline = Date.now() + ms; }
+    } else {
+      if (autoPlays(p)) { if (N.mode === "host" || $("autoLocal")?.checked !== false) { ms = big ? 2200 : 3000; fn = advance; } }
+      else if (S.timer) { ms = Math.min(S.timer, 20) * 1000; fn = advance; S.deadline = Date.now() + ms; }
+    }
+    if (fn) timerHandle = setTimeout(fn, ms);
+    localDeadline = S.deadline;
+    sync();
+  }
+
+  function finish(p) {
+    clearTimeout(timerHandle); S.deadline = 0;
+    S.phase = "over"; busy = false;
+    addLog(`<b>${esc(p.name)}</b> reached the End. Morning!`, p.color);
+    const ranked = S.players.slice().sort((a, b) => b.hours - a.hours);
+    S.end = { first: p.name, ranked: ranked.map(x => ({ name: x.name, color: x.color, hours: x.hours, gained: x.gained, lost: x.lost, id: x.id })) };
+    sync();
+  }
+
+  function effectText(s) {
+    switch (s.kind) {
+      case "gain": return `Gain ${s.amt} Hour${s.amt > 1 ? "s" : ""}`;
+      case "lose": return `Lose ${s.amt} Hour${s.amt > 1 ? "s" : ""}`;
+      case "roll": return "Roll again";
+      case "skip": return "Lose your next turn";
+      case "boost": return "Draw a Memory Booster card";
+      case "swap": return s.dir === "giveNext" ? "Give 1 Hour to the next player" : s.dir === "givePrev" ? "Give 1 Hour to the previous player" : "Take 1 Hour from the next player";
+      case "move": return s === SP.sleepwalk ? "Move back one space" : "Jump to the nearest player ahead";
+    }
+    return "";
+  }
+
+  // ---------- Rendering ----------
+  function buildBoard() {
+    const b = $("board"); b.innerHTML = "";
+    BOARD.forEach((key, i) => {
+      const s = SP[key];
+      const row = Math.floor(i / 6), ci = i % 6, col = row % 2 === 0 ? ci : 5 - ci;
+      const el = document.createElement("div");
+      el.className = "cell " + s.kind; el.id = "cell" + i;
+      el.style.gridRow = row + 1; el.style.gridColumn = col + 1;
+      el.title = s.kind === "terminal" ? s.name : `${s.name}: ${effectText(s)}`;
+      const ic = key === "start" ? "start" : key === "end" ? "end" : key;
+      el.innerHTML = (i && i !== END ? `<span class="n">${i}</span>` : "") + (s.fx ? `<span class="fx">${s.fx}</span>` : "") + icon(ic) + `<span class="lbl">${s.short}</span><div class="tokens"></div>`;
+      if (s.kind !== "terminal") el.addEventListener("click", () => showCardEl({ kind: s.kind, ic: key, label: KIND_LABEL[s.kind], title: s.name, text: s.text, eff: effectText(s) }));
+      b.appendChild(el);
+    });
+  }
+  function buildGuide() {
+    const order = ["stage1","fullnight","app","canceled","fallback","summer","hour","caffeine","screen","movie","pillow","spring","insomnia","terrors","hotel","narco","redeye","hypnic","paralysis","noisy","sibling","talk","sleepwalk","sleepover","booster"];
+    $("guide").innerHTML = order.map(k => cardHTML({ kind: SP[k].kind, ic: k, label: KIND_LABEL[SP[k].kind], title: SP[k].name, text: SP[k].text, eff: effectText(SP[k]) })).join("");
+  }
+  function cardHTML(c) {
+    return `<div class="card ${c.kind}">${icon(c.ic)}<span class="kind">${c.label}${c.who ? ` · <span style="color:${c.whoColor}">${esc(c.who)}</span>` : ""}</span><h3>${esc(c.title)}</h3><p>${c.text}</p>${c.eff ? `<span class="eff">${esc(c.eff)}</span>` : ""}</div>`;
+  }
+  function showCardEl(c) {
+    const box = $("card"); box.innerHTML = cardHTML(c);
+    const el = box.firstElementChild; void el.offsetWidth; el.classList.add("pop");
+  }
+
+  function drawTokens() {
+    document.querySelectorAll(".tokens").forEach(t => t.innerHTML = "");
+    document.querySelectorAll(".cell.hl").forEach(c => c.classList.remove("hl"));
+    if (!S) return;
+    const byCell = {};
+    S.players.forEach((p, idx) => { (byCell[p.pos] = byCell[p.pos] || []).push({ p, idx }); });
+    Object.entries(byCell).forEach(([pos, list]) => {
+      list.sort((a, b) => (b.idx === S.cur) - (a.idx === S.cur) || (b.p.id === N.myPid) - (a.p.id === N.myPid));
+      const box = document.querySelector(`#cell${pos} .tokens`);
+      const cap = list.length > 6 ? 5 : 6;
+      list.slice(0, cap).forEach(({ p, idx }) => {
+        const t = document.createElement("span");
+        t.className = "tok" + ((idx === S.cur && S.phase === "play") || p.id === N.myPid ? " me" : "");
+        t.style.setProperty("--c", p.color); t.textContent = initial(p.name); t.title = p.name;
+        box.appendChild(t);
+      });
+      if (list.length > cap) { const m = document.createElement("span"); m.className = "tok more"; m.textContent = "+" + (list.length - cap); m.title = list.slice(cap).map(x => x.p.name).join(", "); box.appendChild(m); }
+    });
+    if (S.phase === "play") { const cp = S.players[S.cur]; if (cp) $("cell" + cp.pos).classList.add("hl"); }
+  }
+
+  function setDie(n) {
+    const map = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
+    [...$("die").children].forEach((d, i) => d.classList.toggle("on", map[n].includes(i)));
+  }
+  function spinDie() { const d = $("die"); d.classList.remove("spin"); void d.offsetWidth; d.classList.add("spin"); }
+
+  function shareURL() { return location.origin + location.pathname + "#" + N.code; }
+
+  function render() {
+    if (!S) return;
+    const online = N.mode !== "local";
+    const amHost = N.mode !== "client";
+    // Lobby
+    $("lobby").hidden = S.phase !== "lobby";
+    $("play").hidden = S.phase === "lobby";
+    $("shareBox").hidden = !online;
+    $("shareAgain").hidden = !online;
+    if (online) { $("shareLink").value = shareURL(); $("codeLbl").textContent = N.code; $("fileWarn").hidden = location.protocol !== "file:"; }
+    $("lobbyEyebrow").textContent = online ? "Game lobby" : "Players on this device";
+    $("count").textContent = S.players.length;
+    $("chips").innerHTML = S.players.map(p => `<span class="chip${p.connected || p.cpu ? "" : " off"}" style="--c:${p.color}"><span class="dot">${initial(p.name)}</span><span class="nm">${esc(p.name)}${p.cpu ? " · CPU" : ""}${p.id === N.myPid ? " · you" : ""}</span>${amHost && p.id !== N.myPid ? `<button type="button" data-kick="${p.id}" aria-label="Remove ${esc(p.name)}">×</button>` : ""}</span>`).join("");
+    $("hostControls").hidden = !amHost;
+    $("waitMsg").hidden = amHost;
+    $("localAdd").hidden = online;
+    $("addCpu").disabled = S.players.length >= MAX;
+    $("addPerson").disabled = S.players.length >= MAX;
+    $("startBtn").disabled = S.players.length < 2;
+    $("startHint").textContent = S.players.length < 2 ? (online ? "Waiting for at least one more player. Share the link, or add a computer player." : "Add at least two players.") : `Ready with ${S.players.length} players.`;
+    if (amHost) $("timer").value = String(S.timer);
+
+    // Players list
+    $("players").innerHTML = S.players.map((p, i) => `
+      <div class="pl${S.phase === "play" && i === S.cur ? " cur" : ""}" style="--c:${p.color}">
+        <span class="dot">${initial(p.name)}</span>
+        <div style="min-width:0"><div class="nm">${esc(p.name)}${p.id === N.myPid && online ? " (you)" : ""}</div><div class="sub">${p.cpu ? "Computer" : p.connected ? "Player" : "Disconnected"} · ${p.pos === END ? "End" : p.pos === 0 ? "Start" : "space " + p.pos}${p.skip ? " · skips next turn" : ""}</div></div>
+        <div class="hrs">${p.hours}<small>hrs</small></div>
+      </div>`).join("");
+
+    // Log
+    $("log").innerHTML = S.log.length ? S.log.map(l => `<li style="--c:${l.c}">${l.h}</li>`).join("") : `<li style="--c:var(--lav)">Waiting for the game to start.</li>`;
+
+    // Card
+    if (S.cardSeq !== lastCardSeq) {
+      lastCardSeq = S.cardSeq;
+      showCardEl(S.card || { kind: "move", ic: "start", label: "How it works", title: "Collect sleep, dodge distractions", text: "Each player starts with 2 Hour Cards. Roll, move, and follow the space you land on. When anyone reaches the End, the player with the most hours of sleep wins.", eff: "Teens need 8½–9 hours a night" });
+    }
+
+    setDie(S.die || 5);
+    drawTokens();
+
+    // Turn panel
+    if (S.phase !== "lobby") {
+      const p = S.players[S.cur];
+      const mine = N.mode === "local" ? !p.cpu : p.id === N.myPid;
+      $("who").textContent = S.phase === "over" ? "Morning!" : (mine && online ? "Your turn" : `${p.name}'s turn`);
+      $("who").style.color = S.phase === "over" ? "var(--moon)" : p.color;
+      const go = $("go");
+      if (S.phase === "over") { go.textContent = amHost ? "Play again" : "Game over"; go.disabled = !amHost; }
+      else if (S.awaiting === "roll") { go.textContent = S.again ? "Roll again" : "Roll the die"; go.disabled = !mine || busy || S.rolling || p.cpu; }
+      else { go.textContent = "Next turn"; go.disabled = busy || !(mine || amHost); }
+      const nudge = $("nudge");
+      nudge.hidden = !(N.mode === "host" && S.phase === "play" && S.awaiting === "roll" && !mine && !p.cpu && p.connected);
+      nudge.textContent = `Roll for ${p.name}`;
+      nudge.disabled = busy || !!S.rolling;
+      $("youAre").innerHTML = online ? (N.myPid ? (() => { const me = S.players.find(x => x.id === N.myPid); return me ? `You are <b style="color:${me.color}">${esc(me.name)}</b> · ${me.hours} hrs` : ""; })() : "Watching") : "";
+      updateHint();
+    }
+
+    // End
+    if (S.phase === "over" && S.end) {
+      if (!render.shownEnd) {
+        render.shownEnd = true;
+        const r = S.end.ranked, top = r[0].hours, winners = r.filter(x => x.hours === top);
+        $("endEyebrow").textContent = `${S.end.first} reached the End first`;
+        $("endTitle").textContent = winners.length > 1 ? (winners.length > 3 ? `${winners.length}-way tie!` : `${winners.map(w => w.name).join(" & ")} tie!`) : `${winners[0].name} slept best`;
+        $("ranks").innerHTML = r.map((x, i) => `<div class="rank" style="--c:${x.color}"><span class="dot">${i + 1}</span><div style="min-width:0"><b>${esc(x.name)}${x.id === N.myPid && online ? " (you)" : ""}</b><div class="hint">gained ${x.gained} · lost ${x.lost}</div></div><div class="hrs">${x.hours}<small>hrs</small></div></div>`).join("");
+        $("endNote").textContent = top >= 9 ? `${top} hours is right in the healthy range. Teenagers need about 8½ to 9 hours a night to keep memory, mood, and focus sharp.` : `Even the top sleeper banked only ${top} hours. Teenagers need about 8½ to 9 hours a night; short sleep hurts concentration, coordination, memory, and mood.`;
+        $("again").hidden = !amHost;
+        setTimeout(() => { $("endOverlay").hidden = false; }, reduce ? 0 : 600);
+      }
+    } else { render.shownEnd = false; $("endOverlay").hidden = true; }
+  }
+
+  function updateHint() {
+    if (!S || S.phase !== "play") { if (S && S.phase === "over") $("hint").textContent = "The game has ended."; return; }
+    const p = S.players[S.cur];
+    const mine = N.mode === "local" ? !p.cpu : p.id === N.myPid;
+    const secs = localDeadline ? Math.max(0, Math.ceil((localDeadline - Date.now()) / 1000)) : 0;
+    let t;
+    if (S.awaiting === "roll") t = p.cpu ? "Computer player is rolling…" : !p.connected ? "Rolling for a disconnected player…" : mine ? "Press the button or Space to roll." : `Waiting for ${p.name} to roll.`;
+    else t = mine || N.mode !== "client" ? "Read the card, then continue." : `${p.name} is reading the card.`;
+    if (secs && !p.cpu) t += ` Auto in ${secs}s.`;
+    $("hint").textContent = t;
+  }
+  setInterval(updateHint, 500);
+
+  function showErr(id, msg) { const e = $(id); e.textContent = msg; e.hidden = false; }
+  function showRoom() { $("home").hidden = true; $("joinScreen").hidden = true; $("room").hidden = false; render(); }
+
+  // ---------- Wiring ----------
+  $("hostBtn").onclick = () => startHost($("hostName").value.trim() || "Host");
+  $("localBtn").onclick = () => {
+    N.mode = "local"; N.myPid = null; S = blankState(null); S.timer = 0;
+    addPlayer($("hostName").value.trim() || "Player 1", false);
+    addPlayer(CPU_NAMES[0], true);
+    history.replaceState(null, "", location.pathname);
+    showRoom(); sync();
+  };
+  $("joinCodeBtn").onclick = () => {
+    const c = $("joinCode").value.trim().toUpperCase();
+    if (!/^[A-Z0-9]{6}$/.test(c)) { toast("Codes are 6 letters or numbers."); return; }
+    location.hash = c;
+  };
+  $("backHome").onclick = () => { history.replaceState(null, "", location.pathname); route(); };
+  $("joinBtn").onclick = () => { const n = $("joinName").value.trim(); if (!n) { showErr("joinErr", "Enter a name so other players know who you are."); return; } startClient(N.code, n); };
+  $("joinName").addEventListener("keydown", e => { if (e.key === "Enter") $("joinBtn").click(); });
+  $("hostName").addEventListener("keydown", e => { if (e.key === "Enter") $("hostBtn").click(); });
+
+  $("addCpu").onclick = () => { if (S.players.length < MAX) { const used = new Set(S.players.map(p => p.name)); const nm = CPU_NAMES.find(n => !used.has(n)) || `Sleeper ${S.players.length + 1}`; addPlayer(nm, true); sync(); } };
+  $("addPerson").onclick = () => { const n = $("localName").value.trim(); if (!n) { $("localName").focus(); return; } if (S.players.length < MAX) { addPlayer(n, false); $("localName").value = ""; sync(); } };
+  $("localName").addEventListener("keydown", e => { if (e.key === "Enter") $("addPerson").click(); });
+  $("chips").addEventListener("click", e => {
+    const id = e.target.getAttribute("data-kick"); if (!id || N.mode === "client") return;
+    S.players = S.players.filter(p => p.id !== id);
+    N.conns.forEach((c, k) => { if (c.pid === id) { try { c.conn.send({ t: "reject", why: "The host removed you from this game." }); } catch (x) {} setTimeout(() => c.conn.close(), 200); } });
+    sync();
+  });
+  $("timer").onchange = () => { if (S && N.mode !== "client") { S.timer = Number($("timer").value); sync(); } };
+  $("startBtn").onclick = () => act("start", N.myPid);
+  $("go").onclick = () => {
+    if (!S) return;
+    if (S.phase === "over") { act("again", N.myPid); return; }
+    act(S.awaiting === "roll" ? "roll" : "next", N.mode === "local" ? "local" : N.myPid);
+  };
+  $("again").onclick = () => act("again", N.myPid);
+  $("nudge").onclick = () => act("nudge", N.myPid);
+  $("closeEnd").onclick = () => { $("endOverlay").hidden = true; };
+  async function copyLink() {
+    const url = shareURL();
+    try { await navigator.clipboard.writeText(url); toast("Link copied"); }
+    catch (e) { const i = $("shareLink"); i.hidden = false; i.select(); toast("Press Ctrl+C or ⌘C to copy"); }
+  }
+  $("copyBtn").onclick = copyLink;
+  $("shareAgain").onclick = copyLink;
+  document.addEventListener("keydown", e => {
+    if (e.target.matches("input, select, textarea, button")) return;
+    if ((e.key === " " || e.key === "Enter") && S && S.phase === "play" && !$("go").disabled) { e.preventDefault(); $("go").click(); }
+    if (e.key === "Escape") $("endOverlay").hidden = true;
+  });
+  window.addEventListener("beforeunload", e => { if (N.mode === "host" && S && S.players.length > 1) { e.preventDefault(); e.returnValue = ""; } });
+
+  function route() {
+    const code = (location.hash || "").replace("#", "").toUpperCase();
+    const saved = store.lget("sg-name") || "";
+    if (N.mode) { if (code && code !== N.code) location.reload(); return; }
+    if (/^[A-Z0-9]{6}$/.test(code)) {
+      N.code = code; $("joinCodeLbl").textContent = code; $("joinName").value = saved;
+      $("home").hidden = true; $("joinScreen").hidden = false; $("room").hidden = true;
+      $("joinName").focus();
+    } else {
+      $("hostName").value = saved;
+      $("home").hidden = false; $("joinScreen").hidden = true; $("room").hidden = true;
+    }
+  }
+  window.addEventListener("hashchange", route);
+
+  buildBoard(); buildGuide(); route();
+  // Expose for automated tests only
+  window.__sg = { get S() { return S; }, N, act, roll, advance };
+})();
+</script>
+</body>
+</html>
